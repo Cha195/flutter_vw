@@ -33,6 +33,7 @@ class PocketPillsWVState extends State<PocketPillsWV> {
         },
       ),
     )
+    ..enableZoom(false) // DISABLE ZOOM TO PREVENT AUTO-ZOOM ON INPUT FOCUS
     ..loadRequest(Uri.parse('https://testapp.pocketpills.com/?debug=true'));
 
   @override
