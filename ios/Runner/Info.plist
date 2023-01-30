@@ -53,6 +53,7 @@
 			<string>http</string>
 			<string>tel</string>
 			<string>mailto</string>
+			<string>smss</string>
 	</array> 
 </dict>
 </plist>
