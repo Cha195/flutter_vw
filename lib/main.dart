@@ -1,96 +1,141 @@
-import 'package:fl_web_view/PageNotFound.dart';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
-void main() => runApp(MaterialApp(
-      home: const PocketPillsWV(),
-      theme: ThemeData(primarySwatch: Colors.deepPurple),
-    ));
+Future main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-class PocketPillsWV extends StatefulWidget {
-  const PocketPillsWV({super.key});
+  if (Platform.isAndroid) {
+    await AndroidInAppWebViewController.setWebContentsDebuggingEnabled(true);
+  }
 
-  @override
-  PocketPillsWVState createState() => PocketPillsWVState();
+  runApp(MaterialApp(home: new MyApp()));
 }
 
-class PocketPillsWVState extends State<PocketPillsWV> {
-  late final WebViewController _controller;
-  double progressValue = 0;
-  bool isLoading = true;
-  bool isError = false;
+class MyApp extends StatefulWidget {
+  @override
+  _MyAppState createState() => _MyAppState();
+}
 
-  _launchURL(Uri uri) async {
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      throw 'Could not launch $Uri';
-    }
-  }
+class _MyAppState extends State<MyApp> {
+  final GlobalKey webViewKey = GlobalKey();
+
+  InAppWebViewController? webViewController;
+  InAppWebViewGroupOptions options = InAppWebViewGroupOptions(
+    crossPlatform: InAppWebViewOptions(
+      useShouldOverrideUrlLoading: true,
+      mediaPlaybackRequiresUserGesture: false,
+    ),
+    android: AndroidInAppWebViewOptions(
+      useHybridComposition: true,
+    ),
+    ios: IOSInAppWebViewOptions(
+      allowsInlineMediaPlayback: true,
+    ),
+  );
+
+  late PullToRefreshController pullToRefreshController;
+  double progress = 0;
 
   @override
   void initState() {
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(onProgress: (int progress) {
-          setState(() {
-            progressValue = progress / 100;
-          });
-        }, onPageStarted: (String url) {
-          setState(() {
-            isLoading = true;
-          });
-        }, onPageFinished: (String url) {
-          setState(() {
-            isLoading = false;
-          });
-        }, onWebResourceError: (WebResourceError error) {
-          setState(() {
-            isError = true;
-          });
-        }, onNavigationRequest: (NavigationRequest request) async {
-          if (request.url.contains("mailto:") || request.url.contains("tel:")) {
-            final splitUrl = request.url.split(':');
-            final uri = Uri(
-              scheme: splitUrl[0],
-              path: '+${splitUrl[1]}',
-            );
-            _launchURL(uri);
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        }),
-      )
-      ..enableZoom(false) // DISABLE ZOOM TO PREVENT AUTO-ZOOM ON INPUT FOCUS
-      ..loadRequest(Uri.parse('https://testapp.pocketpills.com/?debug=true'));
     super.initState();
+
+    pullToRefreshController = PullToRefreshController(
+      options: PullToRefreshOptions(
+        color: Colors.blue,
+      ),
+      onRefresh: () async {
+        if (Platform.isAndroid) {
+          webViewController?.reload();
+        } else if (Platform.isIOS) {
+          webViewController?.loadUrl(
+            urlRequest: URLRequest(url: await webViewController?.getUrl()),
+          );
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: null,
-      body: isError
-          ? const PageNotFound()
-          : isLoading
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(40.0),
-                      child: LinearProgressIndicator(
-                        value: progressValue,
-                      ),
-                    ),
-                  ],
-                )
-              : SafeArea(
-                  child: WebViewWidget(
-                    controller: _controller,
-                  ),
-                ),
+      body: SafeArea(
+          child: Column(children: <Widget>[
+        Expanded(
+          child: Stack(
+            children: [
+              InAppWebView(
+                key: webViewKey,
+                initialUrlRequest: URLRequest(
+                    url: Uri.parse(
+                        "https://testapp.pocketpills.com/?debug=true")),
+                initialOptions: options,
+                pullToRefreshController: pullToRefreshController,
+                onWebViewCreated: (controller) {
+                  webViewController = controller;
+                },
+                onLoadStart: (controller, url) {},
+                androidOnPermissionRequest:
+                    (controller, origin, resources) async {
+                  return PermissionRequestResponse(
+                      resources: resources,
+                      action: PermissionRequestResponseAction.GRANT);
+                },
+                shouldOverrideUrlLoading: (controller, navigationAction) async {
+                  var uri = navigationAction.request.url!;
+
+                  if (![
+                    "http",
+                    "https",
+                    "file",
+                    "chrome",
+                    "data",
+                    "javascript",
+                    "about"
+                  ].contains(uri.scheme)) {
+                    if (!uri.toString().startsWith("https://youtube.com") &&
+                        await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                      return NavigationActionPolicy.CANCEL;
+                    }
+                  }
+
+                  return NavigationActionPolicy.ALLOW;
+                },
+                onLoadStop: (controller, url) async {
+                  pullToRefreshController.endRefreshing();
+                },
+                onLoadError: (controller, url, code, message) {
+                  pullToRefreshController.endRefreshing();
+                },
+                onProgressChanged: (controller, progress) {
+                  if (progress == 100) {
+                    pullToRefreshController.endRefreshing();
+                  }
+                  setState(() {
+                    this.progress = progress / 100;
+                  });
+                },
+                onUpdateVisitedHistory: (controller, url, androidIsReload) {},
+                onConsoleMessage: (controller, consoleMessage) {
+                  print(consoleMessage);
+                },
+              ),
+              progress < 1.0
+                  ? LinearProgressIndicator(value: progress)
+                  : Container(),
+            ],
+          ),
+        ),
+      ])),
     );
   }
 }
