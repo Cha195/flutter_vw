@@ -1,13 +1,21 @@
 import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
+import 'package:fl_web_view/firebase_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 Future main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   if (Platform.isAndroid) {
     await AndroidInAppWebViewController.setWebContentsDebuggingEnabled(true);
@@ -23,13 +31,15 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final GlobalKey webViewKey = GlobalKey();
+  late FirebasePushNotifications firebasePushNotifications;
 
   InAppWebViewController? webViewController;
   InAppWebViewGroupOptions options = InAppWebViewGroupOptions(
     crossPlatform: InAppWebViewOptions(
-      useShouldOverrideUrlLoading: true,
-      mediaPlaybackRequiresUserGesture: false,
-    ),
+        useShouldOverrideUrlLoading: true,
+        mediaPlaybackRequiresUserGesture: false,
+        userAgent:
+            "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19"),
     android: AndroidInAppWebViewOptions(
       useHybridComposition: true,
     ),
@@ -44,6 +54,9 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    firebasePushNotifications =
+        FirebasePushNotifications(onTapNotification: onTapNotification);
+    firebasePushNotifications.initialize();
 
     pullToRefreshController = PullToRefreshController(
       options: PullToRefreshOptions(
@@ -64,6 +77,17 @@ class _MyAppState extends State<MyApp> {
   @override
   void dispose() {
     super.dispose();
+  }
+
+  Future<void> onTapNotification(NotificationResponse response) async {
+    log("tap");
+    log(response.payload!);
+    if (response.payload == null) return;
+    webViewController?.loadUrl(
+      urlRequest: URLRequest(
+        url: Uri.parse("https://testapp.pocketpills.com/drug/ozempic"),
+      ),
+    );
   }
 
   Future<bool> _goBack(BuildContext context) async {
